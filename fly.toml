@@ -1,0 +1,35 @@
+app = "auth-service-rodmen07"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_PORT = "8082"
+  AUTH_JWT_ALGORITHM = "HS256"
+  AUTH_TOKEN_EXPIRES_SECONDS = "3600"
+  AUTH_ISSUER = "auth-service"
+  AUTH_ALLOWED_ORIGINS = "https://rodmen07.github.io,http://localhost:5173,http://127.0.0.1:5173"
+
+[[services]]
+  internal_port = 8082
+  protocol = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/health"
