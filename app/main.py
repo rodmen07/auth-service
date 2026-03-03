@@ -1,5 +1,6 @@
 import jwt
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.jwt_utils import APP_TITLE, build_access_token, decode_access_token, get_jwt_config
 from app.models import (
     HealthResponse,
@@ -8,9 +9,18 @@ from app.models import (
     VerifyRequest,
     VerifyResponse,
 )
+from app.settings import get_allowed_origins
 
 
 app = FastAPI(title=APP_TITLE)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -34,6 +34,7 @@ PYTHONPATH=. python3 -m pytest -q
 - `AUTH_JWT_ALGORITHM` (default: `HS256`)
 - `AUTH_TOKEN_EXPIRES_SECONDS` (default: `3600`)
 - `AUTH_ISSUER` (default: `auth-service`)
+- `AUTH_ALLOWED_ORIGINS` (comma-separated origins for browser clients)
 - `APP_PORT` (default: `8082`)
 
 ## MVP scope notes
