@@ -24,6 +24,11 @@ jobs:
       - name: Setup Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Ensure Fly app exists
+        run: flyctl apps create auth-service-rodmen07-v2 || true
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Deploy
         run: flyctl deploy --remote-only --config fly.toml
         env:

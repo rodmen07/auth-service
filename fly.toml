@@ -1,4 +1,4 @@
-app = "auth-service-rodmen07"
+app = "auth-service-rodmen07-v2"
 primary_region = "iad"
 
 [build]
