@@ -33,6 +33,13 @@ app.add_middleware(
 )
 
 
+def resolve_cms_callback_url(request: Request) -> str:
+    oauth_config = get_cms_github_oauth_config()
+    if oauth_config.redirect_uri:
+        return oauth_config.redirect_uri
+    return str(request.url_for("cms_oauth_callback"))
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -81,12 +88,12 @@ async def cms_oauth_authorize(
     scope: str = Query(""),
 ) -> RedirectResponse:
     if provider != "github":
-        callback_url = str(request.url_for("cms_oauth_callback"))
+        callback_url = resolve_cms_callback_url(request)
         return RedirectResponse(url=f"{callback_url}?error=unsupported_provider")
 
     oauth_config = get_cms_github_oauth_config()
     if not oauth_config.client_id or not oauth_config.client_secret:
-        callback_url = str(request.url_for("cms_oauth_callback"))
+        callback_url = resolve_cms_callback_url(request)
         return RedirectResponse(
             url=f"{callback_url}?error=oauth_not_configured",
         )
@@ -99,7 +106,7 @@ async def cms_oauth_authorize(
         secret=jwt_config.secret,
     )
 
-    callback_url = str(request.url_for("cms_oauth_callback"))
+    callback_url = resolve_cms_callback_url(request)
     auth_request = httpx.URL(oauth_config.authorize_url).copy_add_param("client_id", oauth_config.client_id)
     auth_request = auth_request.copy_add_param("redirect_uri", callback_url)
     auth_request = auth_request.copy_add_param("scope", requested_scope)
@@ -138,7 +145,7 @@ async def cms_oauth_callback(
     if not verified_state:
         return HTMLResponse(render_popup_error(provider, "Invalid or expired OAuth state"), status_code=400)
 
-    callback_url = str(request.url_for("cms_oauth_callback"))
+    callback_url = resolve_cms_callback_url(request)
 
     token_payload = {
         "client_id": oauth_config.client_id,
@@ -156,7 +163,7 @@ async def cms_oauth_callback(
                 data=token_payload,
             )
             provider_data = token_response.json()
-    except Exception:
+    except (httpx.HTTPError, ValueError, TypeError):
         return HTMLResponse(
             render_popup_error(provider, "OAuth token exchange failed"),
             status_code=502,

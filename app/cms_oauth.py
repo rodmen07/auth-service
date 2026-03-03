@@ -11,6 +11,7 @@ from dataclasses import dataclass
 class CmsGithubOAuthConfig:
     client_id: str
     client_secret: str
+    redirect_uri: str
     authorize_url: str
     token_url: str
     default_scope: str
@@ -21,6 +22,7 @@ def get_cms_github_oauth_config() -> CmsGithubOAuthConfig:
     return CmsGithubOAuthConfig(
         client_id=os.getenv("CMS_GITHUB_CLIENT_ID", "").strip(),
         client_secret=os.getenv("CMS_GITHUB_CLIENT_SECRET", "").strip(),
+        redirect_uri=os.getenv("CMS_GITHUB_REDIRECT_URI", "").strip(),
         authorize_url=os.getenv(
             "CMS_GITHUB_AUTHORIZE_URL",
             "https://github.com/login/oauth/authorize",

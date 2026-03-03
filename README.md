@@ -44,6 +44,7 @@ PYTHONPATH=. python3 -m pytest -q
 - `AUTH_ADMIN_SUBJECTS` (comma-separated subjects allowed to request privileged roles)
 - `CMS_GITHUB_CLIENT_ID` (required for CMS GitHub login)
 - `CMS_GITHUB_CLIENT_SECRET` (required for CMS GitHub login)
+- `CMS_GITHUB_REDIRECT_URI` (recommended; must exactly match your GitHub OAuth app callback URL)
 - `CMS_GITHUB_SCOPE` (default: `repo`)
 - `CMS_OAUTH_STATE_TTL_SECONDS` (default: `600`)
 - `APP_PORT` (default: `8082`)
@@ -61,7 +62,7 @@ PYTHONPATH=. python3 -m pytest -q
 3. Configure Fly secrets:
 
 ```bash
-fly secrets set CMS_GITHUB_CLIENT_ID=<client_id> CMS_GITHUB_CLIENT_SECRET=<client_secret>
+fly secrets set CMS_GITHUB_CLIENT_ID=<client_id> CMS_GITHUB_CLIENT_SECRET=<client_secret> CMS_GITHUB_REDIRECT_URI=https://auth-service-rodmen07-v2.fly.dev/cms/callback
 ```
 
 4. Deploy auth-service.
