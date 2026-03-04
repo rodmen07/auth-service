@@ -17,6 +17,11 @@ class CmsGithubOAuthConfig:
     default_scope: str
     state_ttl_seconds: int
 
+def get_cms_frontend_base_url() -> str:
+    configured = os.getenv("CMS_FRONTEND_BASE_URL", "").strip()
+    base_url = configured or "https://rodmen07.github.io/frontend-service/"
+    return base_url if base_url.endswith("/") else f"{base_url}/"
+
 
 def get_cms_github_oauth_config() -> CmsGithubOAuthConfig:
     return CmsGithubOAuthConfig(
@@ -92,8 +97,10 @@ def verify_oauth_state(*, state: str, secret: str, ttl_seconds: int) -> dict[str
     return {"site_id": site_id, "scope": scope}
 
 
-def render_popup_success(provider: str, payload: dict[str, str]) -> str:
+def render_popup_success(provider: str, payload: dict[str, str], app_base_url: str) -> str:
     payload_json = json.dumps(payload)
+    dashboard_url = f"{app_base_url}#admin-dashboard"
+    cms_url = f"{app_base_url}admin/"
     return f"""<!doctype html>
 <html>
   <head>
@@ -124,14 +131,23 @@ def render_popup_success(provider: str, payload: dict[str, str]) -> str:
         post('authorizing:' + provider);
       }})();
     </script>
-    <p>Authentication complete. You can close this window.</p>
+    <main style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:1.25rem;\">
+      <p style=\"margin:0 0 1rem;\">Authentication complete. You can close this window.</p>
+      <nav style=\"display:flex;flex-wrap:wrap;gap:8px;\">
+        <a href=\"{dashboard_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Open Dashboard</a>
+        <a href=\"{cms_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Open CMS</a>
+        <a href=\"{app_base_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Back to Main Page</a>
+      </nav>
+    </main>
   </body>
 </html>
 """
 
 
-def render_popup_error(provider: str, message: str) -> str:
+def render_popup_error(provider: str, message: str, app_base_url: str) -> str:
     payload_json = json.dumps({"message": message})
+    dashboard_url = f"{app_base_url}#admin-dashboard"
+    cms_url = f"{app_base_url}admin/"
     return f"""<!doctype html>
 <html>
   <head>
@@ -162,7 +178,14 @@ def render_popup_error(provider: str, message: str) -> str:
         post('authorizing:' + provider);
       }})();
     </script>
-    <p>Authentication failed. You can close this window.</p>
+    <main style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:1.25rem;\">
+      <p style=\"margin:0 0 1rem;\">Authentication failed. You can close this window.</p>
+      <nav style=\"display:flex;flex-wrap:wrap;gap:8px;\">
+        <a href=\"{dashboard_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Open Dashboard</a>
+        <a href=\"{cms_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Open CMS</a>
+        <a href=\"{app_base_url}\" style=\"padding:8px 12px;border-radius:10px;background:#18181b;color:#e4e4e7;border:1px solid #3f3f46;text-decoration:none;font:600 13px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;\">Back to Main Page</a>
+      </nav>
+    </main>
   </body>
 </html>
 """

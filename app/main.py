@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app.cms_oauth import (
     get_cms_github_oauth_config,
+    get_cms_frontend_base_url,
     render_popup_error,
     render_popup_success,
     sign_oauth_state,
@@ -124,17 +125,24 @@ async def cms_oauth_callback(
     error_description: str | None = Query(default=None),
 ) -> HTMLResponse:
     provider = "github"
+    app_base_url = get_cms_frontend_base_url()
 
     if error:
         details = error_description.strip() if error_description else error
-        return HTMLResponse(render_popup_error(provider, details), status_code=400)
+        return HTMLResponse(render_popup_error(provider, details, app_base_url), status_code=400)
 
     if not code or not state:
-        return HTMLResponse(render_popup_error(provider, "Missing OAuth callback parameters"), status_code=400)
+        return HTMLResponse(
+            render_popup_error(provider, "Missing OAuth callback parameters", app_base_url),
+            status_code=400,
+        )
 
     oauth_config = get_cms_github_oauth_config()
     if not oauth_config.client_id or not oauth_config.client_secret:
-        return HTMLResponse(render_popup_error(provider, "OAuth provider is not configured"), status_code=500)
+        return HTMLResponse(
+            render_popup_error(provider, "OAuth provider is not configured", app_base_url),
+            status_code=500,
+        )
 
     jwt_config = get_jwt_config()
     verified_state = verify_oauth_state(
@@ -143,7 +151,10 @@ async def cms_oauth_callback(
         ttl_seconds=oauth_config.state_ttl_seconds,
     )
     if not verified_state:
-        return HTMLResponse(render_popup_error(provider, "Invalid or expired OAuth state"), status_code=400)
+        return HTMLResponse(
+            render_popup_error(provider, "Invalid or expired OAuth state", app_base_url),
+            status_code=400,
+        )
 
     callback_url = resolve_cms_callback_url(request)
 
@@ -165,7 +176,7 @@ async def cms_oauth_callback(
             provider_data = token_response.json()
     except (httpx.HTTPError, ValueError, TypeError):
         return HTMLResponse(
-            render_popup_error(provider, "OAuth token exchange failed"),
+            render_popup_error(provider, "OAuth token exchange failed", app_base_url),
             status_code=502,
         )
 
@@ -173,7 +184,7 @@ async def cms_oauth_callback(
     if not token_response.is_success or not isinstance(access_token, str) or not access_token:
         provider_error = provider_data.get("error_description") or provider_data.get("error")
         error_message = str(provider_error) if provider_error else "OAuth token exchange rejected"
-        return HTMLResponse(render_popup_error(provider, error_message), status_code=400)
+        return HTMLResponse(render_popup_error(provider, error_message, app_base_url), status_code=400)
 
     payload = {
         "token": access_token,
@@ -183,4 +194,4 @@ async def cms_oauth_callback(
         "token_type": provider_data.get("token_type", "bearer"),
     }
 
-    return HTMLResponse(render_popup_success(provider, payload))
+    return HTMLResponse(render_popup_success(provider, payload, app_base_url))
