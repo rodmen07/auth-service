@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Refuse to start in production if no real JWT secret is configured."""
+    """Startup validation and graceful shutdown hooks."""
     secret = os.getenv("AUTH_JWT_SECRET", _DEFAULT_SECRET)
     environment = os.getenv("ENVIRONMENT", "development").strip().lower()
     if secret == _DEFAULT_SECRET and environment == "production":
@@ -45,6 +45,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             "The default insecure value is not allowed."
         )
     yield
+    # Flush rate-limiter state so it persists across restarts.
+    limiter.flush()
 
 
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
