@@ -46,6 +46,20 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+@app.get("/info")
+async def info() -> dict:
+    return {
+        "service": APP_TITLE,
+        "version": "0.1.0",
+        "features": [
+            "jwt-issue-verify",
+            "role-based-access",
+            "admin-subject-gating",
+            "cms-github-oauth",
+        ],
+    }
+
+
 @app.post("/auth/token", response_model=TokenResponse)
 async def issue_token(request: TokenRequest) -> TokenResponse:
     config = get_jwt_config()
