@@ -90,3 +90,28 @@ def test_issue_token_allows_privileged_role_for_admin_subject() -> None:
             os.environ.pop("AUTH_ADMIN_SUBJECTS", None)
         else:
             os.environ["AUTH_ADMIN_SUBJECTS"] = unsafe_previous
+
+
+def test_revoke_token_makes_verify_return_inactive() -> None:
+    client = TestClient(app)
+
+    # Issue a token.
+    token_resp = client.post(
+        "/auth/token",
+        json={"subject": "rev-user", "roles": ["user"]},
+    )
+    assert token_resp.status_code == 200
+    access_token = token_resp.json()["access_token"]
+
+    # Verify it's active before revocation.
+    verify_resp = client.post("/auth/verify", json={"token": access_token})
+    assert verify_resp.json()["active"] is True
+
+    # Revoke.
+    revoke_resp = client.post("/auth/revoke", json={"token": access_token})
+    assert revoke_resp.status_code == 200
+    assert revoke_resp.json()["revoked"] is True
+
+    # Verify it's now inactive.
+    verify_resp = client.post("/auth/verify", json={"token": access_token})
+    assert verify_resp.json()["active"] is False

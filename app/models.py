@@ -20,6 +20,10 @@ class VerifyRequest(BaseModel):
     token: str
 
 
+class RevokeRequest(BaseModel):
+    token: str
+
+
 class VerifyResponse(BaseModel):
     active: bool
     subject: str | None = None

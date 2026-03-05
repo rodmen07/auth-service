@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -115,6 +116,7 @@ def build_access_token(*, subject: str, roles: list[str], config: JwtConfig) -> 
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),
         "iss": config.issuer,
+        "jti": str(uuid.uuid4()),
     }
 
     token = jwt.encode(payload, _signing_key(config), algorithm=config.algorithm)

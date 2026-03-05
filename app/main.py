@@ -19,12 +19,14 @@ from app.cms_oauth import (
 from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, build_access_token, decode_access_token, get_jwt_config
 from app.models import (
     HealthResponse,
+    RevokeRequest,
     TokenRequest,
     TokenResponse,
     VerifyRequest,
     VerifyResponse,
 )
 from app.rate_limit import limiter
+from app.revocation import blocklist
 from app.settings import get_allowed_origins
 from app.roles import sanitize_roles
 
@@ -138,6 +140,10 @@ async def verify_token(request: VerifyRequest, raw_request: Request) -> VerifyRe
     except jwt.PyJWTError:
         return VerifyResponse(active=False)
 
+    jti = payload.get("jti")
+    if jti and blocklist.is_revoked(jti):
+        return VerifyResponse(active=False)
+
     roles = payload.get("roles")
     if not isinstance(roles, list):
         roles = []
@@ -149,6 +155,33 @@ async def verify_token(request: VerifyRequest, raw_request: Request) -> VerifyRe
         exp=payload.get("exp"),
         issuer=payload.get("iss"),
     )
+
+
+@app.post("/auth/revoke", response_model=None)
+async def revoke_token(request: RevokeRequest, raw_request: Request) -> JSONResponse:
+    blocked = _rate_limit_or_none(raw_request)
+    if blocked:
+        return blocked
+    config = get_jwt_config()
+
+    try:
+        payload = decode_access_token(request.token, config)
+    except jwt.PyJWTError:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "invalid or expired token"},
+        )
+
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or not exp:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "token has no jti or exp claim"},
+        )
+
+    blocklist.revoke(jti, exp)
+    return JSONResponse(status_code=200, content={"revoked": True})
 
 
 @app.get("/cms/auth", response_model=None)
