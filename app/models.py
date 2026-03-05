@@ -33,3 +33,5 @@ class JwtConfig(BaseModel):
     algorithm: str
     expires_seconds: int
     issuer: str
+    private_key: str | None = None
+    public_key: str | None = None
