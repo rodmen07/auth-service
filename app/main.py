@@ -2,7 +2,7 @@ import jwt
 import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.cms_oauth import (
     get_cms_github_oauth_config,
     get_cms_frontend_base_url,
@@ -19,6 +19,7 @@ from app.models import (
     VerifyRequest,
     VerifyResponse,
 )
+from app.rate_limit import limiter
 from app.settings import get_allowed_origins
 from app.roles import sanitize_roles
 
@@ -41,6 +42,35 @@ def resolve_cms_callback_url(request: Request) -> str:
     return str(request.url_for("cms_oauth_callback"))
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP: X-Forwarded-For (first hop) → direct peer."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+def _rate_limit_or_none(request: Request) -> JSONResponse | None:
+    """Return a 429 JSONResponse if the caller is over their limit, else None."""
+    ip = _client_ip(request)
+    if limiter.is_allowed(ip):
+        return None
+    remaining = limiter.remaining(ip)
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Too many requests. Please try again later.",
+            "retry_after_seconds": limiter.window_seconds,
+        },
+        headers={
+            "Retry-After": str(limiter.window_seconds),
+            "X-RateLimit-Remaining": str(remaining),
+        },
+    )
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -60,8 +90,11 @@ async def info() -> dict:
     }
 
 
-@app.post("/auth/token", response_model=TokenResponse)
-async def issue_token(request: TokenRequest) -> TokenResponse:
+@app.post("/auth/token", response_model=None)
+async def issue_token(request: TokenRequest, raw_request: Request) -> TokenResponse | JSONResponse:
+    blocked = _rate_limit_or_none(raw_request)
+    if blocked:
+        return blocked
     config = get_jwt_config()
     subject = request.subject.strip()
     roles = sanitize_roles(subject=subject, requested_roles=request.roles)
@@ -73,8 +106,11 @@ async def issue_token(request: TokenRequest) -> TokenResponse:
     return TokenResponse(access_token=token, token_type="bearer", expires_in=expires_in)
 
 
-@app.post("/auth/verify", response_model=VerifyResponse)
-async def verify_token(request: VerifyRequest) -> VerifyResponse:
+@app.post("/auth/verify", response_model=None)
+async def verify_token(request: VerifyRequest, raw_request: Request) -> VerifyResponse | JSONResponse:
+    blocked = _rate_limit_or_none(raw_request)
+    if blocked:
+        return blocked
     config = get_jwt_config()
 
     try:
@@ -95,13 +131,17 @@ async def verify_token(request: VerifyRequest) -> VerifyResponse:
     )
 
 
-@app.get("/cms/auth")
+@app.get("/cms/auth", response_model=None)
 async def cms_oauth_authorize(
     request: Request,
     provider: str = Query(...),
     site_id: str = Query(...),
     scope: str = Query(""),
-) -> RedirectResponse:
+) -> RedirectResponse | JSONResponse:
+    blocked = _rate_limit_or_none(request)
+    if blocked:
+        return blocked
+
     if provider != "github":
         callback_url = resolve_cms_callback_url(request)
         return RedirectResponse(url=f"{callback_url}?error=unsupported_provider")
