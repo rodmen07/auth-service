@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.cms_oauth import (
     get_cms_github_oauth_config,
     get_cms_frontend_base_url,
+    get_oauth_state_secret,
     render_popup_error,
     render_popup_success,
     sign_oauth_state,
@@ -206,12 +207,11 @@ async def cms_oauth_authorize(
             url=f"{callback_url}?error=oauth_not_configured",
         )
 
-    jwt_config = get_jwt_config()
     requested_scope = scope.strip() or oauth_config.default_scope
     signed_state = sign_oauth_state(
         site_id=site_id.strip(),
         scope=requested_scope,
-        secret=jwt_config.secret,
+        secret=get_oauth_state_secret(),
     )
 
     callback_url = resolve_cms_callback_url(request)
@@ -251,10 +251,9 @@ async def cms_oauth_callback(
             status_code=500,
         )
 
-    jwt_config = get_jwt_config()
     verified_state = verify_oauth_state(
         state=state,
-        secret=jwt_config.secret,
+        secret=get_oauth_state_secret(),
         ttl_seconds=oauth_config.state_ttl_seconds,
     )
     if not verified_state:

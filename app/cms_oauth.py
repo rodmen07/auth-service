@@ -2,9 +2,29 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_OAUTH_STATE_SECRET = "cms-oauth-state-insecure-default"
+
+
+def get_oauth_state_secret() -> str:
+    """Return the dedicated signing secret for OAuth state tokens.
+
+    Falls back to a hard-coded default that MUST be replaced in production.
+    """
+    secret = os.getenv("CMS_OAUTH_STATE_SECRET", "").strip()
+    if not secret:
+        logger.warning(
+            "CMS_OAUTH_STATE_SECRET is not set — using an insecure default. "
+            "Set CMS_OAUTH_STATE_SECRET to a strong random value in production."
+        )
+        return _DEFAULT_OAUTH_STATE_SECRET
+    return secret
 
 
 @dataclass(frozen=True)
