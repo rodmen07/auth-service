@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,12 +10,28 @@ from app.models import JwtConfig
 
 APP_TITLE = "auth-service"
 
+_DEFAULT_SECRET = "dev-insecure-secret-change-me"
+
+logger = logging.getLogger(__name__)
+
 
 def get_jwt_config() -> JwtConfig:
-    secret = os.getenv("AUTH_JWT_SECRET", "dev-insecure-secret-change-me")
+    secret = os.getenv("AUTH_JWT_SECRET", _DEFAULT_SECRET)
     algorithm = os.getenv("AUTH_JWT_ALGORITHM", "HS256")
     expires_seconds_raw = os.getenv("AUTH_TOKEN_EXPIRES_SECONDS", "3600")
     issuer = os.getenv("AUTH_ISSUER", APP_TITLE)
+
+    if secret == _DEFAULT_SECRET:
+        logger.warning(
+            "AUTH_JWT_SECRET is using the default insecure value. "
+            "Set AUTH_JWT_SECRET to a strong random secret in production."
+        )
+
+    if len(secret) < 32:
+        logger.warning(
+            "AUTH_JWT_SECRET is shorter than 32 characters. "
+            "Use a secret with at least 32 characters for adequate security."
+        )
 
     try:
         expires_seconds = int(expires_seconds_raw)

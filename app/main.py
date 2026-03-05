@@ -1,3 +1,8 @@
+import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import jwt
 import httpx
 from fastapi import FastAPI, Query, Request
@@ -11,7 +16,7 @@ from app.cms_oauth import (
     sign_oauth_state,
     verify_oauth_state,
 )
-from app.jwt_utils import APP_TITLE, build_access_token, decode_access_token, get_jwt_config
+from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, build_access_token, decode_access_token, get_jwt_config
 from app.models import (
     HealthResponse,
     TokenRequest,
@@ -23,8 +28,23 @@ from app.rate_limit import limiter
 from app.settings import get_allowed_origins
 from app.roles import sanitize_roles
 
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title=APP_TITLE)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Refuse to start in production if no real JWT secret is configured."""
+    secret = os.getenv("AUTH_JWT_SECRET", _DEFAULT_SECRET)
+    environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+    if secret == _DEFAULT_SECRET and environment == "production":
+        raise RuntimeError(
+            "AUTH_JWT_SECRET must be set to a strong secret in production. "
+            "The default insecure value is not allowed."
+        )
+    yield
+
+
+app = FastAPI(title=APP_TITLE, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
