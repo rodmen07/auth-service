@@ -39,7 +39,7 @@ def test_token_endpoint_returns_429_when_rate_limited():
     original_window = limiter.window_seconds
     limiter.max_requests = 2
     limiter.window_seconds = 60
-    limiter._buckets.clear()
+    limiter.clear()
 
     client = TestClient(app)
     payload = {"subject": "flood-test", "roles": ["user"]}
@@ -58,4 +58,4 @@ def test_token_endpoint_returns_429_when_rate_limited():
     finally:
         limiter.max_requests = original_max
         limiter.window_seconds = original_window
-        limiter._buckets.clear()
+        limiter.clear()

@@ -98,6 +98,12 @@ class RateLimiter:
             active = [ts for ts in bucket.timestamps if ts > cutoff]
             return max(0, self.max_requests - len(active))
 
+    def clear(self) -> None:
+        """Remove all tracked buckets (useful for testing)."""
+        with self._lock:
+            self._buckets.clear()
+            self._dirty = True
+
     def flush(self) -> None:
         """Write current state to disk (no-op if persistence is disabled)."""
         if not self._state_file:
