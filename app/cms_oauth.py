@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,14 @@ def get_cms_frontend_base_url() -> str:
     configured = os.getenv("CMS_FRONTEND_BASE_URL", "").strip()
     base_url = configured or "https://rodmen07.github.io/frontend-service/"
     return base_url if base_url.endswith("/") else f"{base_url}/"
+
+
+def _extract_origin(url: str) -> str:
+    """Return the scheme+host origin of *url* for use as a postMessage target."""
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return "*"
 
 
 def get_cms_github_oauth_config() -> CmsGithubOAuthConfig:
@@ -121,6 +130,9 @@ def render_popup_success(provider: str, payload: dict[str, str], app_base_url: s
     payload_json = json.dumps(payload)
     dashboard_url = f"{app_base_url}#admin-dashboard"
     cms_url = f"{app_base_url}admin/"
+    # Use the specific origin of the frontend app rather than '*' to prevent
+    # leaking the GitHub access token to unintended opener windows.
+    target_origin = _extract_origin(app_base_url)
     return f"""<!doctype html>
 <html>
   <head>
@@ -132,15 +144,17 @@ def render_popup_success(provider: str, payload: dict[str, str], app_base_url: s
     <script>
       (function() {{
         var provider = {json.dumps(provider)};
+        var targetOrigin = {json.dumps(target_origin)};
         var success = 'authorization:' + provider + ':success:' + {json.dumps(payload_json)};
 
         function post(message) {{
           if (window.opener) {{
-            window.opener.postMessage(message, '*');
+            window.opener.postMessage(message, targetOrigin);
           }}
         }}
 
         window.addEventListener('message', function(event) {{
+          if (event.origin !== targetOrigin) {{ return; }}
           if (event.data === 'authorizing:' + provider) {{
             post(event.data);
             post(success);
@@ -168,6 +182,7 @@ def render_popup_error(provider: str, message: str, app_base_url: str) -> str:
     payload_json = json.dumps({"message": message})
     dashboard_url = f"{app_base_url}#admin-dashboard"
     cms_url = f"{app_base_url}admin/"
+    target_origin = _extract_origin(app_base_url)
     return f"""<!doctype html>
 <html>
   <head>
@@ -179,15 +194,17 @@ def render_popup_error(provider: str, message: str, app_base_url: str) -> str:
     <script>
       (function() {{
         var provider = {json.dumps(provider)};
+        var targetOrigin = {json.dumps(target_origin)};
         var failure = 'authorization:' + provider + ':error:' + {json.dumps(payload_json)};
 
         function post(message) {{
           if (window.opener) {{
-            window.opener.postMessage(message, '*');
+            window.opener.postMessage(message, targetOrigin);
           }}
         }}
 
         window.addEventListener('message', function(event) {{
+          if (event.origin !== targetOrigin) {{ return; }}
           if (event.data === 'authorizing:' + provider) {{
             post(event.data);
             post(failure);
