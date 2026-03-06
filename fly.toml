@@ -4,6 +4,10 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+[mounts]
+  source = "auth_data"
+  destination = "/data"
+
 [env]
   APP_PORT = "8082"
   AUTH_JWT_ALGORITHM = "HS256"
@@ -12,6 +16,8 @@ primary_region = "iad"
   AUTH_ALLOWED_ORIGINS = "https://rodmen07.github.io,http://localhost:5173,http://127.0.0.1:5173"
   CMS_GITHUB_SCOPE = "repo"
   CMS_OAUTH_STATE_TTL_SECONDS = "600"
+  DATABASE_URL = "sqlite:///data/auth.db"
+  USER_OAUTH_STATE_TTL_SECONDS = "600"
 
 [[services]]
   internal_port = 8082
