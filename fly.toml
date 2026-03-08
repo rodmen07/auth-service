@@ -1,23 +1,43 @@
-# fly.toml app configuration file generated for auth-service-izhvzw on 2026-03-07T15:02:16Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'auth-service-izhvzw'
-primary_region = 'ams'
+app = "auth-service-rodmen07-v2"
+primary_region = "iad"
 
 [build]
+  dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
+[mounts]
+  source = "auth_data"
+  destination = "/data"
+
+[env]
+  APP_PORT = "8082"
+  AUTH_JWT_ALGORITHM = "HS256"
+  AUTH_TOKEN_EXPIRES_SECONDS = "3600"
+  AUTH_ISSUER = "auth-service"
+  AUTH_ALLOWED_ORIGINS = "https://rodmen07.github.io,http://localhost:5173,http://127.0.0.1:5173"
+  CMS_GITHUB_SCOPE = "repo"
+  CMS_OAUTH_STATE_TTL_SECONDS = "600"
+  DATABASE_URL = "sqlite:////data/auth.db"
+  USER_OAUTH_STATE_TTL_SECONDS = "600"
+
+[[services]]
+  internal_port = 8082
+  protocol = "tcp"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+  min_machines_running = 1
+  processes = ["app"]
 
-[[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/health"
