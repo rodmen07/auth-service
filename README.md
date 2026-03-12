@@ -25,7 +25,7 @@ Authentication microservice that issues and verifies JWTs, enforces role-based a
 | Validation | Pydantic 2.9.2 |
 | Server | Uvicorn 0.30.6 |
 | Testing | pytest 8.3.3 |
-| Deployment | Fly.io (Docker) |
+| Deployment | Google Cloud Run (Docker) |
 
 ## Project Structure
 
@@ -111,11 +111,7 @@ PYTHONPATH=. pytest -q
 ## CMS OAuth Setup
 
 1. Create a GitHub OAuth App
-2. Set callback URL to `https://auth-service-rodmen07-v2.fly.dev/cms/callback`
-3. Configure Fly secrets:
-
-```bash
-fly secrets set CMS_GITHUB_CLIENT_ID=<id> CMS_GITHUB_CLIENT_SECRET=<secret> CMS_GITHUB_REDIRECT_URI=https://auth-service-rodmen07-v2.fly.dev/cms/callback
-```
-
+2. Set callback URL to your deployed auth service URL, for example:
+  `https://auth-service-<project>.run.app/cms/callback`
+3. Configure runtime secrets/env vars in your deployment target (`CMS_GITHUB_CLIENT_ID`, `CMS_GITHUB_CLIENT_SECRET`, `CMS_GITHUB_REDIRECT_URI`)
 4. Deploy and use the CMS admin login
