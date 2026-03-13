@@ -6,7 +6,7 @@ from typing import Any
 
 import jwt
 import httpx
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.cms_oauth import (
@@ -732,44 +732,6 @@ _DASHBOARD_LOGIN_HTML = """<!DOCTYPE html>
   }
   h1 { font-size: 1.125rem; font-weight: 700; color: #fbbf24; margin-bottom: .25rem; }
   p.sub { font-size: .75rem; color: #71717a; margin-bottom: 1.5rem; }
-  label { display: block; font-size: .7rem; color: #a1a1aa; margin-bottom: .375rem; text-transform: uppercase; letter-spacing: .05em; }
-  input {
-    width: 100%;
-    background: #09090b;
-    border: 1px solid rgba(113,113,122,.4);
-    border-radius: .625rem;
-    padding: .625rem .75rem;
-    color: #f4f4f5;
-    font-size: .875rem;
-    margin-bottom: 1rem;
-    outline: none;
-  }
-  input:focus { border-color: rgba(251,191,36,.5); }
-  button {
-    width: 100%;
-    background: linear-gradient(to right, rgba(245,158,11,.25), rgba(249,115,22,.25));
-    border: 1px solid rgba(251,191,36,.4);
-    border-radius: .75rem;
-    padding: .625rem;
-    color: #fde68a;
-    font-size: .875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background .15s;
-  }
-  button:hover { background: linear-gradient(to right, rgba(245,158,11,.4), rgba(249,115,22,.4)); }
-  .error {
-    display: {error_display};
-    background: rgba(220,38,38,.15);
-    border: 1px solid rgba(220,38,38,.35);
-    border-radius: .625rem;
-    padding: .5rem .75rem;
-    font-size: .75rem;
-    color: #fca5a5;
-    margin-bottom: 1rem;
-  }
-  .footer { margin-top: 1.25rem; font-size: .65rem; color: #52525b; text-align: center; }
-  .divider { margin: 1rem 0 .75rem; text-align: center; font-size: .75rem; color: #52525b; }
   .github-btn {
     display: block; text-align: center; padding: .625rem;
     border: 1px solid rgba(113,113,122,.4); border-radius: .75rem;
@@ -777,23 +739,15 @@ _DASHBOARD_LOGIN_HTML = """<!DOCTYPE html>
     transition: border-color .15s, color .15s;
   }
   .github-btn:hover { border-color: rgba(161,161,170,.6); color: #d4d4d8; }
+  .footer { margin-top: 1.25rem; font-size: .65rem; color: #52525b; text-align: center; }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Dashboard Admin</h1>
   <p class="sub">Sign in to access the spend dashboard</p>
-  <div class="error">Invalid credentials or insufficient permissions.</div>
-  <form method="POST" action="/dashboard/login">
-    <label for="username">Email</label>
-    <input id="username" name="username" type="email" autocomplete="username" required placeholder="admin@example.com" />
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" />
-    <button type="submit">Sign in →</button>
-  </form>
-  <div class="divider">or</div>
   <a href="/dashboard/oauth/github" class="github-btn">Sign in with GitHub &rarr;</a>
-  <p class="footer">Admin access only &mdash; credentials are your registered admin account</p>
+  <p class="footer">Admin access only</p>
 </div>
 </body>
 </html>"""
@@ -825,40 +779,5 @@ async def dashboard_oauth_github(request: Request) -> RedirectResponse | HTMLRes
 
 
 @app.get("/dashboard/login", response_class=HTMLResponse)
-async def dashboard_login_page(error: int = Query(default=0)) -> HTMLResponse:
-    html = _DASHBOARD_LOGIN_HTML.replace(
-        "{error_display}", "block" if error else "none"
-    )
-    return HTMLResponse(html)
-
-
-@app.post("/dashboard/login")
-async def dashboard_login_submit(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-) -> RedirectResponse:
-    rl = _rate_limit_or_none(request)
-    if rl is not None:
-        return RedirectResponse("/dashboard/login?error=1", status_code=303)
-
-    user = await get_user_by_username(get_db_path(), username)
-    if not user:
-        return RedirectResponse("/dashboard/login?error=1", status_code=303)
-
-    if user.password_hash is None or not verify_password(password, user.password_hash):
-        return RedirectResponse("/dashboard/login?error=1", status_code=303)
-
-    # Must be in AUTH_ADMIN_SUBJECTS (by user ID or email/username)
-    admin_subjects = _admin_subjects()
-    if admin_subjects and user.id not in admin_subjects and username not in admin_subjects:
-        return RedirectResponse("/dashboard/login?error=1", status_code=303)
-
-    roles = _roles_for_username(username)
-    token, _ = _build_user_token(user.id, roles)
-
-    spend_url = os.getenv(
-        "SPEND_DASHBOARD_URL",
-        "https://dynamodb-dashboard-rodmen07.fly.dev/spend",
-    )
-    return RedirectResponse(f"{spend_url}#token={token}", status_code=303)
+async def dashboard_login_page() -> HTMLResponse:
+    return HTMLResponse(_DASHBOARD_LOGIN_HTML)
