@@ -785,16 +785,16 @@ async def dashboard_login_submit(
     if not user:
         return RedirectResponse("/dashboard/login?error=1", status_code=303)
 
-    if not await verify_password(password, user["password_hash"]):
+    if user.password_hash is None or not verify_password(password, user.password_hash):
         return RedirectResponse("/dashboard/login?error=1", status_code=303)
 
     # Must be in AUTH_ADMIN_SUBJECTS (by user ID or email/username)
     admin_subjects = _admin_subjects()
-    if admin_subjects and user["id"] not in admin_subjects and username not in admin_subjects:
+    if admin_subjects and user.id not in admin_subjects and username not in admin_subjects:
         return RedirectResponse("/dashboard/login?error=1", status_code=303)
 
     roles = _roles_for_username(username)
-    token, _ = _build_user_token(user["id"], roles)
+    token, _ = _build_user_token(user.id, roles)
 
     spend_url = os.getenv(
         "SPEND_DASHBOARD_URL",
