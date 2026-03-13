@@ -51,6 +51,7 @@ from app.user_oauth import (
     get_user_oauth_state_secret,
     render_user_popup_error,
     render_user_popup_success,
+    sign_dashboard_oauth_state,
     sign_user_oauth_state,
     verify_user_oauth_state,
 )
@@ -551,14 +552,22 @@ async def user_oauth_callback(
         )
 
     ttl = max(60, int(os.getenv("USER_OAUTH_STATE_TTL_SECONDS", "600")))
-    provider = verify_user_oauth_state(
+    state_data = verify_oauth_state(
         state=state,
         secret=get_user_oauth_state_secret(),
         ttl_seconds=ttl,
     )
-    if not provider:
+    if not state_data:
         return HTMLResponse(
             render_user_popup_error("Invalid or expired OAuth state", app_base_url),
+            status_code=400,
+        )
+
+    scope = state_data.get("scope", "user_login")
+    provider = state_data.get("site_id", "")
+    if not provider:
+        return HTMLResponse(
+            render_user_popup_error("Invalid OAuth state: missing provider", app_base_url),
             status_code=400,
         )
 
@@ -659,6 +668,23 @@ async def user_oauth_callback(
     roles = _roles_for_username(user.username)
     token, expires_in = _build_user_token(user.id, roles)
 
+    if scope == "dashboard_login":
+        # Admin redirect flow — check admin membership
+        admin_subjects = _admin_subjects()
+        if admin_subjects and user.id not in admin_subjects and user.username not in admin_subjects:
+            return HTMLResponse(
+                "<html><body style='font-family:monospace;background:#09090b;color:#fca5a5;"
+                "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'>"
+                "<p>Access denied: admin account required.</p></body></html>",
+                status_code=403,
+            )
+        spend_url = os.getenv(
+            "SPEND_DASHBOARD_URL",
+            "https://dynamodb-dashboard-rodmen07.fly.dev/spend",
+        )
+        return RedirectResponse(f"{spend_url}#token={token}", status_code=303)
+
+    # Default: user_login popup flow
     return HTMLResponse(
         render_user_popup_success(
             {
@@ -743,6 +769,14 @@ _DASHBOARD_LOGIN_HTML = """<!DOCTYPE html>
     margin-bottom: 1rem;
   }
   .footer { margin-top: 1.25rem; font-size: .65rem; color: #52525b; text-align: center; }
+  .divider { margin: 1rem 0 .75rem; text-align: center; font-size: .75rem; color: #52525b; }
+  .github-btn {
+    display: block; text-align: center; padding: .625rem;
+    border: 1px solid rgba(113,113,122,.4); border-radius: .75rem;
+    color: #a1a1aa; font-size: .875rem; text-decoration: none;
+    transition: border-color .15s, color .15s;
+  }
+  .github-btn:hover { border-color: rgba(161,161,170,.6); color: #d4d4d8; }
 </style>
 </head>
 <body>
@@ -757,10 +791,37 @@ _DASHBOARD_LOGIN_HTML = """<!DOCTYPE html>
     <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••" />
     <button type="submit">Sign in →</button>
   </form>
+  <div class="divider">or</div>
+  <a href="/dashboard/oauth/github" class="github-btn">Sign in with GitHub &rarr;</a>
   <p class="footer">Admin access only &mdash; credentials are your registered admin account</p>
 </div>
 </body>
 </html>"""
+
+
+@app.get("/dashboard/oauth/github", response_model=None)
+async def dashboard_oauth_github(request: Request) -> RedirectResponse | HTMLResponse:
+    blocked = _rate_limit_or_none(request)
+    if blocked:
+        return blocked
+
+    oauth_config = get_user_github_oauth_config()
+    if not oauth_config.client_id or not oauth_config.client_secret:
+        return HTMLResponse(
+            "<p>GitHub OAuth is not configured</p>",
+            status_code=500,
+        )
+
+    signed_state = sign_dashboard_oauth_state(secret=get_user_oauth_state_secret())
+
+    callback_url = _resolve_user_oauth_callback_url(request)
+    auth_url = httpx.URL(oauth_config.authorize_url)
+    auth_url = auth_url.copy_add_param("client_id", oauth_config.client_id)
+    auth_url = auth_url.copy_add_param("redirect_uri", callback_url)
+    auth_url = auth_url.copy_add_param("scope", oauth_config.default_scope)
+    auth_url = auth_url.copy_add_param("state", signed_state)
+
+    return RedirectResponse(url=str(auth_url))
 
 
 @app.get("/dashboard/login", response_class=HTMLResponse)

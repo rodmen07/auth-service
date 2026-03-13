@@ -241,3 +241,8 @@ def verify_user_oauth_state(*, state: str, secret: str, ttl_seconds: int) -> str
     if result is None:
         return None
     return result.get("site_id")  # we stored provider in the site_id field
+
+
+def sign_dashboard_oauth_state(*, secret: str) -> str:
+    """Sign an OAuth state token for the dashboard admin login flow."""
+    return sign_oauth_state(site_id="github", scope="dashboard_login", secret=secret)
