@@ -3,7 +3,7 @@ import os
 from fastapi import HTTPException
 
 
-DEFAULT_ALLOWED_ROLES = ["user", "planner", "admin"]
+DEFAULT_ALLOWED_ROLES = ["user", "planner", "admin", "client"]
 DEFAULT_PRIVILEGED_ROLES = ["admin"]
 
 

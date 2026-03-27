@@ -74,3 +74,12 @@ class AuthUserResponse(BaseModel):
     user_id: str
     username: str
     roles: list[str]
+
+
+class UpdateRolesRequest(BaseModel):
+    roles: list[str] = Field(min_length=1, max_length=10)
+
+
+class UpdateRolesResponse(BaseModel):
+    user_id: str
+    roles: list[str]

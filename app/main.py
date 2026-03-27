@@ -22,9 +22,11 @@ from app.database import (
     create_or_get_oauth_user,
     create_user_with_password,
     get_db_path,
+    get_user_by_id,
     get_user_by_username,
     hash_password,
     init_db,
+    update_user_roles,
     verify_password,
 )
 from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, build_access_token, decode_access_token, get_jwt_config
@@ -36,6 +38,8 @@ from app.models import (
     RevokeRequest,
     TokenRequest,
     TokenResponse,
+    UpdateRolesRequest,
+    UpdateRolesResponse,
     VerifyRequest,
     VerifyResponse,
 )
@@ -131,10 +135,16 @@ def _admin_subjects() -> set[str]:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
-def _roles_for_username(username: str) -> list[str]:
-    """Return ['user', 'planner'] or ['user', 'planner', 'admin'] based on AUTH_ADMIN_SUBJECTS."""
+def _roles_for_user(user) -> list[str]:
+    """Return roles from DB if set, otherwise fall back to env-based logic."""
+    if user.roles:
+        import json
+        try:
+            return json.loads(user.roles)
+        except (json.JSONDecodeError, TypeError):
+            pass
     roles = ["user", "planner"]
-    if username in _admin_subjects():
+    if user.username in _admin_subjects():
         roles.append("admin")
     return roles
 
@@ -403,7 +413,7 @@ async def register_user(
             content={"detail": "Email address already registered. Please use a different email address."},
         )
 
-    roles = _roles_for_username(user.username)
+    roles = _roles_for_user(user)
     token, expires_in = _build_user_token(user.id, roles)
 
     return AuthUserResponse(
@@ -443,7 +453,7 @@ async def login_user(
     if not verify_password(request.password, user.password_hash):
         return _invalid
 
-    roles = _roles_for_username(user.username)
+    roles = _roles_for_user(user)
     token, expires_in = _build_user_token(user.id, roles)
 
     return AuthUserResponse(
@@ -454,6 +464,60 @@ async def login_user(
         username=user.username,
         roles=roles,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin: manage user roles
+# ---------------------------------------------------------------------------
+
+@app.patch("/admin/users/{user_id}/roles", response_model=None)
+async def admin_update_user_roles(
+    user_id: str,
+    request: UpdateRolesRequest,
+    raw_request: Request,
+) -> UpdateRolesResponse | JSONResponse:
+    # Verify caller is admin via JWT
+    auth_header = raw_request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authorization header required"},
+        )
+    token = auth_header[len("Bearer "):]
+    try:
+        claims = decode_access_token(token)
+    except Exception:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or expired token"},
+        )
+    caller_roles = claims.get("roles", [])
+    if "admin" not in caller_roles:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Admin role required"},
+        )
+
+    # Validate requested roles
+    from app.roles import DEFAULT_ALLOWED_ROLES
+    for role in request.roles:
+        if role.lower() not in DEFAULT_ALLOWED_ROLES:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": f"Invalid role: {role}"},
+            )
+
+    # Verify target user exists
+    user = await get_user_by_id(get_db_path(), user_id)
+    if user is None:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "User not found"},
+        )
+
+    normalized = [r.lower() for r in request.roles]
+    await update_user_roles(get_db_path(), user_id, normalized)
+    return UpdateRolesResponse(user_id=user_id, roles=normalized)
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +729,7 @@ async def user_oauth_callback(
             status_code=500,
         )
 
-    roles = _roles_for_username(user.username)
+    roles = _roles_for_user(user)
     token, expires_in = _build_user_token(user.id, roles)
 
     if scope == "dashboard_login":

@@ -43,6 +43,7 @@ class UserRecord:
     username: str
     password_hash: str | None
     created_at: str
+    roles: str | None = None
 
 
 _CREATE_USERS = """
@@ -71,6 +72,11 @@ async def init_db(db_path: str) -> None:
     async with aiosqlite.connect(db_path) as db:
         await db.execute(_CREATE_USERS)
         await db.execute(_CREATE_OAUTH_IDENTITIES)
+        # Migration: add roles column if missing
+        cursor = await db.execute("PRAGMA table_info(users)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "roles" not in columns:
+            await db.execute("ALTER TABLE users ADD COLUMN roles TEXT DEFAULT NULL")
         await db.commit()
     logger.info("Database initialised at %s", db_path)
 
@@ -94,25 +100,38 @@ async def create_user_with_password(db_path: str, username: str, password_hash: 
 async def get_user_by_username(db_path: str, username: str) -> UserRecord | None:
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT id, username, password_hash, created_at FROM users WHERE username = ?",
+            "SELECT id, username, password_hash, created_at, roles FROM users WHERE username = ?",
             (username,),
         ) as cursor:
             row = await cursor.fetchone()
     if row is None:
         return None
-    return UserRecord(id=row[0], username=row[1], password_hash=row[2], created_at=row[3])
+    return UserRecord(id=row[0], username=row[1], password_hash=row[2], created_at=row[3], roles=row[4])
 
 
 async def get_user_by_id(db_path: str, user_id: str) -> UserRecord | None:
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT id, username, password_hash, created_at FROM users WHERE id = ?",
+            "SELECT id, username, password_hash, created_at, roles FROM users WHERE id = ?",
             (user_id,),
         ) as cursor:
             row = await cursor.fetchone()
     if row is None:
         return None
-    return UserRecord(id=row[0], username=row[1], password_hash=row[2], created_at=row[3])
+    return UserRecord(id=row[0], username=row[1], password_hash=row[2], created_at=row[3], roles=row[4])
+
+
+async def update_user_roles(db_path: str, user_id: str, roles: list[str]) -> bool:
+    """Update the roles JSON column for a user. Returns True if the user was found."""
+    import json
+    roles_json = json.dumps(roles)
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute(
+            "UPDATE users SET roles = ? WHERE id = ?",
+            (roles_json, user_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def create_or_get_oauth_user(
@@ -139,14 +158,18 @@ async def create_or_get_oauth_user(
         if identity_row is not None:
             user_id = identity_row[0]
             async with db.execute(
-                "SELECT id, username, password_hash, created_at FROM users WHERE id = ?",
+                "SELECT id, username, password_hash, created_at, roles FROM users WHERE id = ?",
                 (user_id,),
             ) as cursor:
                 user_row = await cursor.fetchone()
             if user_row is None:
                 raise RuntimeError(f"OAuth identity references missing user {user_id}")
             return (
-                UserRecord(id=user_row[0], username=user_row[1], password_hash=user_row[2], created_at=user_row[3]),
+                UserRecord(
+                    id=user_row[0], username=user_row[1],
+                    password_hash=user_row[2], created_at=user_row[3],
+                    roles=user_row[4],
+                ),
                 False,
             )
 
