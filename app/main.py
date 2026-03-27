@@ -55,6 +55,7 @@ from app.user_oauth import (
     get_user_oauth_state_secret,
     render_user_popup_error,
     render_user_popup_success,
+    sign_client_portal_oauth_state,
     sign_dashboard_oauth_state,
     sign_user_oauth_state,
     verify_user_oauth_state,
@@ -532,7 +533,11 @@ def _resolve_user_oauth_callback_url(request: Request) -> str:
 
 
 @app.get("/user/oauth/github", response_model=None)
-async def user_oauth_github_authorize(request: Request) -> RedirectResponse | HTMLResponse:
+async def user_oauth_github_authorize(
+    request: Request,
+    scope: str | None = Query(default=None),
+    redirect_uri: str | None = Query(default=None),
+) -> RedirectResponse | HTMLResponse:
     blocked = _rate_limit_or_none(request)
     if blocked:
         return blocked
@@ -545,10 +550,17 @@ async def user_oauth_github_authorize(request: Request) -> RedirectResponse | HT
             status_code=500,
         )
 
-    signed_state = sign_user_oauth_state(
-        provider="github",
-        secret=get_user_oauth_state_secret(),
-    )
+    if scope == "client_portal" and redirect_uri:
+        signed_state = sign_client_portal_oauth_state(
+            provider="github",
+            redirect_uri=redirect_uri,
+            secret=get_user_oauth_state_secret(),
+        )
+    else:
+        signed_state = sign_user_oauth_state(
+            provider="github",
+            secret=get_user_oauth_state_secret(),
+        )
 
     callback_url = _resolve_user_oauth_callback_url(request)
     auth_url = httpx.URL(oauth_config.authorize_url)
@@ -561,7 +573,11 @@ async def user_oauth_github_authorize(request: Request) -> RedirectResponse | HT
 
 
 @app.get("/user/oauth/google", response_model=None)
-async def user_oauth_google_authorize(request: Request) -> RedirectResponse | HTMLResponse:
+async def user_oauth_google_authorize(
+    request: Request,
+    scope: str | None = Query(default=None),
+    redirect_uri: str | None = Query(default=None),
+) -> RedirectResponse | HTMLResponse:
     blocked = _rate_limit_or_none(request)
     if blocked:
         return blocked
@@ -574,10 +590,17 @@ async def user_oauth_google_authorize(request: Request) -> RedirectResponse | HT
             status_code=500,
         )
 
-    signed_state = sign_user_oauth_state(
-        provider="google",
-        secret=get_user_oauth_state_secret(),
-    )
+    if scope == "client_portal" and redirect_uri:
+        signed_state = sign_client_portal_oauth_state(
+            provider="google",
+            redirect_uri=redirect_uri,
+            secret=get_user_oauth_state_secret(),
+        )
+    else:
+        signed_state = sign_user_oauth_state(
+            provider="google",
+            secret=get_user_oauth_state_secret(),
+        )
 
     callback_url = _resolve_user_oauth_callback_url(request)
     auth_url = httpx.URL(oauth_config.authorize_url)
@@ -731,6 +754,25 @@ async def user_oauth_callback(
 
     roles = _roles_for_user(user)
     token, expires_in = _build_user_token(user.id, roles)
+
+    if scope == "client_portal":
+        portal_redirect_uri = state_data.get("redirect_uri", "")
+        if not portal_redirect_uri:
+            return HTMLResponse(
+                render_user_popup_error("Missing redirect_uri in portal OAuth state", app_base_url),
+                status_code=400,
+            )
+        # Basic open-redirect guard: only allow http(s) URIs
+        if not portal_redirect_uri.startswith(("http://", "https://")):
+            return HTMLResponse(
+                render_user_popup_error("Invalid redirect_uri", app_base_url),
+                status_code=400,
+            )
+        separator = "&" if "?" in portal_redirect_uri else "?"
+        return RedirectResponse(
+            f"{portal_redirect_uri}{separator}token={token}",
+            status_code=303,
+        )
 
     if scope == "dashboard_login":
         # Admin redirect flow — check admin membership

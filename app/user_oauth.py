@@ -246,3 +246,17 @@ def verify_user_oauth_state(*, state: str, secret: str, ttl_seconds: int) -> str
 def sign_dashboard_oauth_state(*, secret: str) -> str:
     """Sign an OAuth state token for the dashboard admin login flow."""
     return sign_oauth_state(site_id="github", scope="dashboard_login", secret=secret)
+
+
+def sign_client_portal_oauth_state(*, provider: str, redirect_uri: str, secret: str) -> str:
+    """Sign an OAuth state token for the client portal login flow.
+
+    The redirect_uri is embedded in the signed state so the callback can
+    redirect back to the frontend with the JWT.
+    """
+    return sign_oauth_state(
+        site_id=provider,
+        scope="client_portal",
+        secret=secret,
+        redirect_uri=redirect_uri,
+    )

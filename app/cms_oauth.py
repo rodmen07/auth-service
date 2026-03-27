@@ -79,11 +79,12 @@ def _b64url_decode(raw_string: str) -> bytes:
     return base64.urlsafe_b64decode(raw_string + padding)
 
 
-def sign_oauth_state(*, site_id: str, scope: str, secret: str) -> str:
-    payload = {
+def sign_oauth_state(*, site_id: str, scope: str, secret: str, **extra: str) -> str:
+    payload: dict[str, object] = {
         "site_id": site_id,
         "scope": scope,
         "iat": int(time.time()),
+        **extra,
     }
     payload_part = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(secret.encode("utf-8"), payload_part.encode("utf-8"), hashlib.sha256)
