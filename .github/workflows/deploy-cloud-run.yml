@@ -72,7 +72,6 @@ jobs:
             --image "$IMAGE" \
             --region "${{ env.GCP_REGION }}" \
             --platform managed \
-            --allow-unauthenticated \
             --port 8082 \
             --memory 512Mi \
             --cpu 1 \
@@ -82,6 +81,14 @@ jobs:
             --set-env-vars "^#^APP_PORT=8082#DATABASE_URL=sqlite:////tmp/auth.db#AUTH_JWT_ALGORITHM=HS256#AUTH_TOKEN_EXPIRES_SECONDS=3600#AUTH_ISSUER=auth-service#AUTH_ALLOWED_ORIGINS=${{ vars.AUTH_ALLOWED_ORIGINS }}#CMS_GITHUB_SCOPE=repo#CMS_OAUTH_STATE_TTL_SECONDS=600#USER_OAUTH_STATE_TTL_SECONDS=600#ENVIRONMENT=production" \
             --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,USER_GITHUB_CLIENT_ID=USER_GITHUB_CLIENT_ID:latest,USER_GITHUB_CLIENT_SECRET=USER_GITHUB_CLIENT_SECRET:latest,USER_GITHUB_REDIRECT_URI=USER_GITHUB_REDIRECT_URI:latest,USER_GOOGLE_CLIENT_ID=USER_GOOGLE_CLIENT_ID:latest,USER_GOOGLE_CLIENT_SECRET=USER_GOOGLE_CLIENT_SECRET:latest,USER_GOOGLE_REDIRECT_URI=USER_GOOGLE_REDIRECT_URI:latest,USER_OAUTH_STATE_SECRET=USER_OAUTH_STATE_SECRET:latest,CMS_GITHUB_CLIENT_ID=CMS_GITHUB_CLIENT_ID:latest,CMS_GITHUB_CLIENT_SECRET=CMS_GITHUB_CLIENT_SECRET:latest,CMS_GITHUB_REDIRECT_URI=CMS_GITHUB_REDIRECT_URI:latest,CMS_OAUTH_STATE_SECRET=CMS_OAUTH_STATE_SECRET:latest" \
             --quiet
+
+      - name: Allow unauthenticated access
+        if: steps.config.outputs.enabled == 'true'
+        run: |
+          gcloud run services add-iam-policy-binding "${{ env.SERVICE_NAME }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --member="allUsers" \
+            --role="roles/run.invoker"
 
       - name: Health check
         if: steps.config.outputs.enabled == 'true'
