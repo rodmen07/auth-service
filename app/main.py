@@ -768,9 +768,13 @@ async def user_oauth_callback(
                 render_user_popup_error("Invalid redirect_uri", app_base_url),
                 status_code=400,
             )
-        separator = "&" if "?" in portal_redirect_uri else "?"
+        # Ensure the client role is present in the JWT for portal access
+        if "client" not in roles:
+            roles = list(roles) + ["client"]
+            token, expires_in = _build_user_token(user.id, roles)
+        # Use hash fragment so auth.js can read the token without it hitting the server
         return RedirectResponse(
-            f"{portal_redirect_uri}{separator}token={token}",
+            f"{portal_redirect_uri}#token={token}",
             status_code=303,
         )
 
