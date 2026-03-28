@@ -124,7 +124,9 @@ def verify_oauth_state(*, state: str, secret: str, ttl_seconds: int) -> dict[str
     if not isinstance(site_id, str) or not isinstance(scope, str):
         return None
 
-    return {"site_id": site_id, "scope": scope}
+    # Return all string fields so callers like the client_portal flow can
+    # retrieve embedded values (e.g. redirect_uri) without a separate function.
+    return {k: v for k, v in payload.items() if isinstance(v, str)}
 
 
 def render_popup_success(provider: str, payload: dict[str, str], app_base_url: str) -> str:
