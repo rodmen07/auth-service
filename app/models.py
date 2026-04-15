@@ -83,3 +83,29 @@ class UpdateRolesRequest(BaseModel):
 class UpdateRolesResponse(BaseModel):
     user_id: str
     roles: list[str]
+
+
+class InviteRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def email_format(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("must be a valid email address")
+        return v.lower().strip()
+
+
+class InviteResponse(BaseModel):
+    invite_url: str
+    email: str
+    expires_in_hours: int
+
+
+class PasswordResetRequestModel(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class PasswordResetConfirmModel(BaseModel):
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=6, max_length=128)

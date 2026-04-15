@@ -19,21 +19,36 @@ from app.cms_oauth import (
     verify_oauth_state,
 )
 from app.database import (
+    create_invite,
     create_or_get_oauth_user,
+    create_password_reset_token,
+    create_refresh_token,
     create_user_with_password,
     get_db_path,
+    get_invite_by_token,
+    get_user_by_email,
     get_user_by_id,
     get_user_by_username,
     hash_password,
     init_db,
+    mark_invite_used,
+    mark_password_reset_used,
+    revoke_refresh_token,
+    update_user_password,
     update_user_roles,
+    validate_and_get_refresh_token_user,
+    validate_and_get_reset_token_user,
     verify_password,
 )
 from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, build_access_token, decode_access_token, get_jwt_config
 from app.models import (
     AuthUserResponse,
     HealthResponse,
+    InviteRequest,
+    InviteResponse,
     LoginRequest,
+    PasswordResetConfirmModel,
+    PasswordResetRequestModel,
     RegisterRequest,
     RevokeRequest,
     TokenRequest,
@@ -47,8 +62,10 @@ from app.rate_limit import limiter
 from app.revocation import blocklist
 from app.roles import sanitize_roles
 from app.settings import get_allowed_origins
+from app.email_sender import send_invite_email, send_password_reset_email
 from app.user_oauth import (
     fetch_github_user,
+    fetch_github_user_email,
     fetch_google_user,
     get_user_github_oauth_config,
     get_user_google_oauth_config,
@@ -171,6 +188,38 @@ def _build_user_token(user_id: str, roles: list[str]) -> tuple[str, int]:
 
     token = jwt.encode(payload, _signing_key(config), algorithm=config.algorithm)
     return token, config.expires_seconds
+
+
+_REFRESH_COOKIE_NAME = "refresh_token"
+_REFRESH_COOKIE_MAX_AGE = int(os.getenv("REFRESH_TOKEN_TTL_SECONDS", str(7 * 24 * 3600)))
+
+
+async def _build_auth_response(user, roles: list[str]) -> tuple[AuthUserResponse, str]:
+    """Build an AuthUserResponse and a fresh raw refresh token for cookie setting."""
+    access_token, expires_in = _build_user_token(user.id, roles)
+    raw_refresh = await create_refresh_token(get_db_path(), user.id)
+    response_body = AuthUserResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=expires_in,
+        user_id=user.id,
+        username=user.username,
+        roles=roles,
+    )
+    return response_body, raw_refresh
+
+
+def _set_refresh_cookie(response, raw_refresh: str) -> None:
+    """Attach a secure httpOnly refresh token cookie to the given Response object."""
+    response.set_cookie(
+        key=_REFRESH_COOKIE_NAME,
+        value=raw_refresh,
+        max_age=_REFRESH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT", "development").strip().lower() == "production",
+        samesite="lax",
+        path="/auth",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -399,11 +448,24 @@ async def cms_oauth_callback(
 
 @app.post("/auth/register", response_model=None, status_code=201)
 async def register_user(
-    request: RegisterRequest, raw_request: Request
+    request: RegisterRequest,
+    raw_request: Request,
+    invite_token: str | None = Query(default=None, alias="token"),
 ) -> AuthUserResponse | JSONResponse:
     blocked = _rate_limit_or_none(raw_request)
     if blocked:
         return blocked
+
+    # Validate invite token if provided
+    invite = None
+    if invite_token:
+        from app.database import _is_expired
+        invite = await get_invite_by_token(get_db_path(), invite_token)
+        if invite is None or invite.used_at is not None or _is_expired(invite.expires_at):
+            return JSONResponse(status_code=400, content={"detail": "Invalid or expired invite link."})
+        # Ensure the email matches the invite
+        if invite.email != request.username.lower().strip():
+            return JSONResponse(status_code=400, content={"detail": "Email does not match the invite."})
 
     pw_hash = hash_password(request.password)
     try:
@@ -414,17 +476,20 @@ async def register_user(
             content={"detail": "Email address already registered. Please use a different email address."},
         )
 
-    roles = _roles_for_user(user)
-    token, expires_in = _build_user_token(user.id, roles)
+    # Assign client role for invite-based registrations, otherwise default roles
+    if invite:
+        import json as _json
+        roles = ["user", "client"]
+        await update_user_roles(get_db_path(), user.id, roles)
+        await mark_invite_used(get_db_path(), invite_token)
+    else:
+        roles = _roles_for_user(user)
 
-    return AuthUserResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in=expires_in,
-        user_id=user.id,
-        username=user.username,
-        roles=roles,
-    )
+    response_body, raw_refresh = await _build_auth_response(user, roles)
+    from fastapi.responses import Response as FastAPIResponse
+    json_response = JSONResponse(status_code=201, content=response_body.model_dump())
+    _set_refresh_cookie(json_response, raw_refresh)
+    return json_response
 
 
 @app.post("/auth/login", response_model=None)
@@ -455,16 +520,10 @@ async def login_user(
         return _invalid
 
     roles = _roles_for_user(user)
-    token, expires_in = _build_user_token(user.id, roles)
-
-    return AuthUserResponse(
-        access_token=token,
-        token_type="bearer",
-        expires_in=expires_in,
-        user_id=user.id,
-        username=user.username,
-        roles=roles,
-    )
+    response_body, raw_refresh = await _build_auth_response(user, roles)
+    json_response = JSONResponse(content=response_body.model_dump())
+    _set_refresh_cookie(json_response, raw_refresh)
+    return json_response
 
 
 # ---------------------------------------------------------------------------
@@ -522,8 +581,100 @@ async def admin_update_user_roles(
 
 
 # ---------------------------------------------------------------------------
-# User OAuth — GitHub
+# Invite flow (admin-only)
 # ---------------------------------------------------------------------------
+
+_INVITE_BASE_URL = os.getenv("INVITE_BASE_URL", "").strip()
+_INVITE_EXPIRES_HOURS = int(os.getenv("INVITE_EXPIRES_HOURS", "72"))
+
+
+def _require_admin(raw_request: Request) -> dict | JSONResponse:
+    """Decode the bearer token and return claims if admin, else a 401/403 JSONResponse."""
+    auth_header = raw_request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "Authorization header required"})
+    token = auth_header[len("Bearer "):]
+    try:
+        config = get_jwt_config()
+        claims = decode_access_token(token, config)
+    except Exception:
+        return JSONResponse(status_code=401, content={"detail": "Invalid or expired token"})
+    if "admin" not in claims.get("roles", []):
+        return JSONResponse(status_code=403, content={"detail": "Admin access required"})
+    return claims
+
+
+@app.post("/auth/invite", response_model=InviteResponse, status_code=201)
+async def create_invite_link(
+    body: InviteRequest, raw_request: Request
+) -> InviteResponse | JSONResponse:
+    claims = _require_admin(raw_request)
+    if isinstance(claims, JSONResponse):
+        return claims
+
+    invite_record = await create_invite(get_db_path(), body.email)
+    base = _INVITE_BASE_URL.rstrip("/")
+    invite_url = f"{base}/register?token={invite_record.token}" if base else f"/register?token={invite_record.token}"
+
+    await send_invite_email(body.email, invite_url)
+    return InviteResponse(
+        invite_url=invite_url,
+        email=body.email,
+        expires_in_hours=_INVITE_EXPIRES_HOURS,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Refresh, logout, password reset
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/refresh", response_model=None)
+async def refresh_access_token(raw_request: Request) -> JSONResponse:
+    raw_refresh = raw_request.cookies.get(_REFRESH_COOKIE_NAME)
+    if not raw_refresh:
+        return JSONResponse(status_code=401, content={"detail": "No refresh token"})
+
+    user = await validate_and_get_refresh_token_user(get_db_path(), raw_refresh)
+    if user is None:
+        return JSONResponse(status_code=401, content={"detail": "Invalid or expired refresh token"})
+
+    roles = _roles_for_user(user)
+    token, expires_in = _build_user_token(user.id, roles)
+    return JSONResponse(content={"access_token": token, "token_type": "bearer", "expires_in": expires_in})
+
+
+@app.post("/auth/logout", status_code=204)
+async def logout_user(raw_request: Request) -> JSONResponse:
+    raw_refresh = raw_request.cookies.get(_REFRESH_COOKIE_NAME)
+    if raw_refresh:
+        await revoke_refresh_token(get_db_path(), raw_refresh)
+    response = JSONResponse(status_code=204, content=None)
+    response.delete_cookie(key=_REFRESH_COOKIE_NAME, path="/auth")
+    return response
+
+
+@app.post("/auth/password/reset-request", status_code=202)
+async def password_reset_request(body: PasswordResetRequestModel) -> JSONResponse:
+    user = await get_user_by_email(get_db_path(), body.email)
+    if user is not None and user.password_hash is not None:
+        raw_token = await create_password_reset_token(get_db_path(), user.id)
+        base = _INVITE_BASE_URL.rstrip("/")
+        reset_url = f"{base}/reset-password?token={raw_token}" if base else f"/reset-password?token={raw_token}"
+        await send_password_reset_email(user.email or user.username, reset_url)
+    # Always return 202 to avoid revealing whether the email is registered
+    return JSONResponse(status_code=202, content={"detail": "If that email is registered, a reset link has been sent."})
+
+
+@app.post("/auth/password/reset", status_code=200)
+async def password_reset_confirm(body: PasswordResetConfirmModel) -> JSONResponse:
+    user = await validate_and_get_reset_token_user(get_db_path(), body.token)
+    if user is None:
+        return JSONResponse(status_code=400, content={"detail": "Invalid or expired reset token"})
+
+    new_hash = hash_password(body.password)
+    await update_user_password(get_db_path(), user.id, new_hash)
+    await mark_password_reset_used(get_db_path(), body.token)
+    return JSONResponse(content={"detail": "Password updated successfully"})
 
 def _resolve_user_oauth_callback_url(request: Request) -> str:
     configured = os.getenv("USER_OAUTH_CALLBACK_URL", "").strip()
@@ -720,6 +871,7 @@ async def user_oauth_callback(
             user_info = await fetch_github_user(provider_access_token)
             provider_user_id = str(user_info.get("id", ""))
             provider_username = user_info.get("login") or user_info.get("name") or "github_user"
+            provider_email: str | None = user_info.get("email") or await fetch_github_user_email(provider_access_token)
         else:
             user_info = await fetch_google_user(provider_access_token)
             provider_user_id = str(user_info.get("id", ""))
@@ -728,6 +880,7 @@ async def user_oauth_callback(
                 or user_info.get("email", "").split("@")[0]
                 or "google_user"
             )
+            provider_email = user_info.get("email") or None
     except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
         logger.exception("Failed to fetch user info from %s: %s", provider, exc)
         return HTMLResponse(
@@ -743,7 +896,7 @@ async def user_oauth_callback(
 
     try:
         user, _created = await create_or_get_oauth_user(
-            get_db_path(), provider, provider_user_id, provider_username
+            get_db_path(), provider, provider_user_id, provider_username, provider_email=provider_email
         )
     except Exception as exc:
         logger.exception("Database error during OAuth user lookup: %s", exc)
@@ -772,11 +925,13 @@ async def user_oauth_callback(
         if "client" not in roles:
             roles = list(roles) + ["client"]
             token, expires_in = _build_user_token(user.id, roles)
-        # Use hash fragment so auth.js can read the token without it hitting the server
-        return RedirectResponse(
+        raw_refresh = await create_refresh_token(get_db_path(), user.id)
+        redirect = RedirectResponse(
             f"{portal_redirect_uri}#token={token}",
             status_code=303,
         )
+        _set_refresh_cookie(redirect, raw_refresh)
+        return redirect
 
     if scope == "dashboard_login":
         # Admin redirect flow — check admin membership

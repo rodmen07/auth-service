@@ -85,10 +85,19 @@ jobs:
       - name: Allow unauthenticated access
         if: steps.config.outputs.enabled == 'true'
         run: |
-          gcloud run services add-iam-policy-binding "${{ env.SERVICE_NAME }}" \
-            --region "${{ env.GCP_REGION }}" \
-            --member="allUsers" \
-            --role="roles/run.invoker"
+          for attempt in 1 2 3 4 5; do
+            if gcloud run services add-iam-policy-binding "${{ env.SERVICE_NAME }}" \
+              --region "${{ env.GCP_REGION }}" \
+              --member="allUsers" \
+              --role="roles/run.invoker"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::IAM binding failed after 5 attempts."
+              exit 1
+            fi
+            sleep $((2 ** attempt))
+          done
 
       - name: Health check
         if: steps.config.outputs.enabled == 'true'

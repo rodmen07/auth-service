@@ -114,6 +114,32 @@ async def fetch_github_user(access_token: str) -> dict:
         return resp.json()
 
 
+async def fetch_github_user_email(access_token: str) -> str | None:
+    """Return the primary verified email for the GitHub user, or None if unavailable."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            "https://api.github.com/user/emails",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        if not resp.is_success:
+            return None
+        emails = resp.json()
+    if not isinstance(emails, list):
+        return None
+    # Prefer primary + verified email
+    for entry in emails:
+        if entry.get("primary") and entry.get("verified"):
+            return entry.get("email")
+    # Fall back to any verified email
+    for entry in emails:
+        if entry.get("verified"):
+            return entry.get("email")
+    return None
+
+
 async def fetch_google_user(access_token: str) -> dict:
     """Return the Google userinfo object for the given access token."""
     async with httpx.AsyncClient(timeout=15) as client:
