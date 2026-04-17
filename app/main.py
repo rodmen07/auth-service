@@ -479,6 +479,7 @@ async def register_user(
     if invite:
         roles = ["user", "client"]
         await update_user_roles(get_db_path(), user.id, roles)
+        assert invite_token is not None  # invite is only set when invite_token is truthy
         await mark_invite_used(get_db_path(), invite_token)
     else:
         roles = _roles_for_user(user)
@@ -542,7 +543,7 @@ async def admin_update_user_roles(
         )
     token = auth_header[len("Bearer "):]
     try:
-        claims = decode_access_token(token)
+        claims = decode_access_token(token, get_jwt_config())
     except Exception:
         return JSONResponse(
             status_code=401,
@@ -685,7 +686,7 @@ async def user_oauth_github_authorize(
     request: Request,
     scope: str | None = Query(default=None),
     redirect_uri: str | None = Query(default=None),
-) -> RedirectResponse | HTMLResponse:
+) -> RedirectResponse | HTMLResponse | JSONResponse:
     blocked = _rate_limit_or_none(request)
     if blocked:
         return blocked
@@ -725,7 +726,7 @@ async def user_oauth_google_authorize(
     request: Request,
     scope: str | None = Query(default=None),
     redirect_uri: str | None = Query(default=None),
-) -> RedirectResponse | HTMLResponse:
+) -> RedirectResponse | HTMLResponse | JSONResponse:
     blocked = _rate_limit_or_none(request)
     if blocked:
         return blocked
@@ -773,7 +774,7 @@ async def user_oauth_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
-) -> HTMLResponse:
+) -> HTMLResponse | RedirectResponse:
     app_base_url = get_cms_frontend_base_url()
 
     if error:
@@ -1016,7 +1017,7 @@ _DASHBOARD_LOGIN_HTML = """<!DOCTYPE html>
 
 
 @app.get("/dashboard/oauth/github", response_model=None)
-async def dashboard_oauth_github(request: Request) -> RedirectResponse | HTMLResponse:
+async def dashboard_oauth_github(request: Request) -> RedirectResponse | HTMLResponse | JSONResponse:
     blocked = _rate_limit_or_none(request)
     if blocked:
         return blocked
