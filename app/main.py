@@ -924,10 +924,15 @@ async def user_oauth_callback(
             roles = list(roles) + ["client"]
             token, expires_in = _build_user_token(user.id, roles)
         raw_refresh = await create_refresh_token(get_db_path(), user.id)
-        redirect = RedirectResponse(
-            f"{portal_redirect_uri}#token={token}",
-            status_code=303,
-        )
+        # Put token as a query param before the hash fragment so the frontend
+        # hash-router sees the correct route immediately on page load.
+        if "#" in portal_redirect_uri:
+            _base, _frag = portal_redirect_uri.split("#", 1)
+            _base = _base.rstrip("?&")
+            _redirect_url = f"{_base}?token={token}#{_frag}"
+        else:
+            _redirect_url = f"{portal_redirect_uri}?token={token}"
+        redirect = RedirectResponse(_redirect_url, status_code=303)
         _set_refresh_cookie(redirect, raw_refresh)
         return redirect
 
