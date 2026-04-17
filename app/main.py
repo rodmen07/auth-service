@@ -75,7 +75,6 @@ from app.user_oauth import (
     sign_client_portal_oauth_state,
     sign_dashboard_oauth_state,
     sign_user_oauth_state,
-    verify_user_oauth_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -478,7 +477,6 @@ async def register_user(
 
     # Assign client role for invite-based registrations, otherwise default roles
     if invite:
-        import json as _json
         roles = ["user", "client"]
         await update_user_roles(get_db_path(), user.id, roles)
         await mark_invite_used(get_db_path(), invite_token)
@@ -486,7 +484,6 @@ async def register_user(
         roles = _roles_for_user(user)
 
     response_body, raw_refresh = await _build_auth_response(user, roles)
-    from fastapi.responses import Response as FastAPIResponse
     json_response = JSONResponse(status_code=201, content=response_body.model_dump())
     _set_refresh_cookie(json_response, raw_refresh)
     return json_response

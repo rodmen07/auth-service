@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 import httpx
 
 from app.cms_oauth import (
-    get_cms_frontend_base_url,
     sign_oauth_state,
     verify_oauth_state,
 )

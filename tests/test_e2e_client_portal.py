@@ -22,8 +22,8 @@ os.environ["SMTP_HOST"] = ""
 
 os.environ["RATE_LIMIT_MAX_REQUESTS"] = "1000"
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402 — must come after env setup
 

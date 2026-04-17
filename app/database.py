@@ -325,7 +325,6 @@ async def create_invite(db_path: str, email: str) -> InviteRecord:
     token = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(hours=_INVITE_EXPIRES_HOURS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "INSERT INTO invites (id, email, token, expires_at) VALUES (?, ?, ?, ?)",
