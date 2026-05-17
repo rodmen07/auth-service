@@ -40,7 +40,7 @@ from app.database import (
     validate_and_get_reset_token_user,
     verify_password,
 )
-from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, build_access_token, decode_access_token, get_jwt_config
+from app.jwt_utils import APP_TITLE, _DEFAULT_SECRET, _RSA_ALGORITHMS, build_access_token, decode_access_token, get_jwt_config
 from app.models import (
     AuthUserResponse,
     HealthResponse,
@@ -244,6 +244,45 @@ async def info() -> dict:
             "user-github-oauth",
             "user-google-oauth",
         ],
+    }
+
+
+@app.get("/.well-known/jwks.json", summary="JSON Web Key Set")
+async def jwks() -> dict:
+    """Return the RSA public signing key in JWK format for RS256 token verification.
+
+    Returns an empty key set when the service is configured for HS256 (symmetric)
+    signing, since the HMAC secret must not be exposed publicly.
+    """
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+    config = get_jwt_config()
+    if config.algorithm not in _RSA_ALGORITHMS or not config.public_key:
+        return {"keys": []}
+
+    def _b64url(n: int) -> str:
+        byte_length = (n.bit_length() + 7) // 8
+        return base64.urlsafe_b64encode(n.to_bytes(byte_length, "big")).rstrip(b"=").decode()
+
+    pub = load_pem_public_key(config.public_key.encode())
+    if not isinstance(pub, RSAPublicKey):
+        return {"keys": []}
+
+    pn = pub.public_numbers()
+    return {
+        "keys": [
+            {
+                "kty": "RSA",
+                "use": "sig",
+                "alg": config.algorithm,
+                "kid": "1",
+                "n": _b64url(pn.n),
+                "e": _b64url(pn.e),
+            }
+        ]
     }
 
 
