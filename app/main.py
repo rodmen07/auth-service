@@ -675,9 +675,17 @@ async def refresh_access_token(raw_request: Request) -> JSONResponse:
     if user is None:
         return JSONResponse(status_code=401, content={"detail": "Invalid or expired refresh token"})
 
+    # Rotate: revoke the consumed token and issue a fresh one.
+    # A replayed (already-used) token will be rejected above by validate_and_get,
+    # so any future use of the old token is blocked after this point.
+    await revoke_refresh_token(get_db_path(), raw_refresh)
+    new_raw_refresh = await create_refresh_token(get_db_path(), user.id)
+
     roles = _roles_for_user(user)
     token, expires_in = _build_user_token(user.id, roles)
-    return JSONResponse(content={"access_token": token, "token_type": "bearer", "expires_in": expires_in})
+    json_response = JSONResponse(content={"access_token": token, "token_type": "bearer", "expires_in": expires_in})
+    _set_refresh_cookie(json_response, new_raw_refresh)
+    return json_response
 
 
 @app.post("/auth/logout", status_code=204)
@@ -806,7 +814,7 @@ async def user_oauth_google_authorize(
 # User OAuth — shared callback
 # ---------------------------------------------------------------------------
 
-@app.get("/user/oauth/callback", response_class=HTMLResponse, name="user_oauth_callback")
+@app.get("/user/oauth/callback", response_class=HTMLResponse, response_model=None, name="user_oauth_callback")
 async def user_oauth_callback(
     request: Request,
     code: str | None = Query(default=None),
