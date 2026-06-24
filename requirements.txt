@@ -9,4 +9,4 @@ cryptography>=42.0
 argon2-cffi>=23.1.0
 aiosqlite>=0.20.0
 mypy==1.14.1
-types-PyJWT>=1.7.2
+types-PyJWT>=1.7.1
